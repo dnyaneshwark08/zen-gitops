@@ -44,8 +44,13 @@ cd zen-gitops
 
 ```bash
 export YOUR_GITHUB_USERNAME=<your-actual-github-username>
+# macOS
 find lab2/argocd-apps -name "*.yaml" -exec \
   sed -i '' "s/<YOUR_GITHUB_USERNAME>/$YOUR_GITHUB_USERNAME/g" {} +
+
+# Linux / Cloud9
+find lab2/argocd-apps -name "*.yaml" -exec \
+  sed -i "s/<YOUR_GITHUB_USERNAME>/$YOUR_GITHUB_USERNAME/g" {} +
 
 # Verify
 grep -r "github.com" lab2/argocd-apps/ | head -3
@@ -524,8 +529,8 @@ EKS Cluster
 ArgoCD
 └── pharma project
     ├── 9 × dev apps
-    ├── 8 × qa apps
-    └── 8 × prod apps (manual sync)
+    ├── 8 × qa apps   (qc-service excluded — no qa/prod values file exists)
+    └── 8 × prod apps (qc-service excluded, manual sync)
 
 zen-gitops repo
 ├── helm-charts/           ← one chart for all services
