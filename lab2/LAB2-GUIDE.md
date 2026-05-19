@@ -13,41 +13,6 @@ All three must exist. If not, complete Lab 1 first.
 
 ---
 
-## Before You Deploy — Set Your RDS Endpoint
-
-The raw manifests in `lab2/manifests/` contain a `DB_HOST` configmap entry that must match **your** RDS instance. This is the same step as Lab 1 — if your RDS was reprovisioned since Lab 1 (or you are starting fresh), re-run it.
-
-```bash
-export DB_HOST=$(aws rds describe-db-instances \
-  --query 'DBInstances[?DBInstanceIdentifier==`pharma-dev-postgres`].Endpoint.Address' \
-  --output text)
-echo $DB_HOST
-
-# macOS
-find lab2/manifests/ -name "configmap.yaml" -exec \
-  sed -i '' "s|DB_HOST:.*rds\.amazonaws\.com|DB_HOST: $DB_HOST|g" {} +
-
-# Linux / Cloud9
-find lab2/manifests/ -name "configmap.yaml" -exec \
-  sed -i "s|DB_HOST:.*rds\.amazonaws\.com|DB_HOST: $DB_HOST|g" {} +
-```
-
-Verify:
-```bash
-grep "DB_HOST" lab2/manifests/*/configmap.yaml
-```
-
-Commit the changes so ArgoCD picks them up when it clones your fork:
-```bash
-git add lab2/manifests/
-git commit -m "lab2: set RDS endpoint for my environment"
-git push
-```
-
-> **Why this step exists:** ArgoCD applies what is in Git — not what is in your cluster. If the endpoint in the manifest files is wrong, ArgoCD will keep applying the broken ConfigMap and your pods will keep crashing even after you fix the cluster manually.
-
----
-
 # Part 1 — Day 2: ArgoCD with Raw Manifests
 
 ## What We Are Building
@@ -62,11 +27,13 @@ By the end of Day 2 you will have:
 
 ---
 
-## Step 1 — Fork the Repository
+## Step 1 — Fork and Configure the Repository
 
-Every student needs their own copy of zen-gitops so ArgoCD can watch YOUR repo.
+Every student needs their own copy of zen-gitops so ArgoCD can watch **your** repo and pick up **your** changes (including your RDS endpoint).
 
-1. Go to `https://github.com/ravdy/zen-gitops`
+**1a. Fork on GitHub**
+
+1. Go to `https://github.com/DPP-2026/zen-gitops`
 2. Click **Fork** → create under your GitHub account
 3. Clone your fork locally:
 
@@ -75,53 +42,107 @@ git clone https://github.com/<YOUR_GITHUB_USERNAME>/zen-gitops.git
 cd zen-gitops
 ```
 
-4. Replace `<YOUR_GITHUB_USERNAME>` in every YAML file under `lab2/argocd-apps/`:
+**1b. Update all ArgoCD app files to point to your fork**
+
+The `day2-raw` apps reference the instructor org (`DPP-2026`). The `day3-helm` apps use a placeholder. Replace both:
 
 ```bash
-export YOUR_GITHUB_USERNAME=<your-actual-github-username>
+export GH_USER=<your-actual-github-username>
+
 # macOS
-find lab2/argocd-apps -name "*.yaml" -exec \
-  sed -i '' "s/<YOUR_GITHUB_USERNAME>/$YOUR_GITHUB_USERNAME/g" {} +
+find lab2/argocd-apps -name "*.yaml" \
+  -exec sed -i '' "s|DPP-2026/zen-gitops|$GH_USER/zen-gitops|g" {} + \
+  -exec sed -i '' "s|<YOUR_GITHUB_USERNAME>|$GH_USER|g" {} +
 
 # Linux / Cloud9
-find lab2/argocd-apps -name "*.yaml" -exec \
-  sed -i "s/<YOUR_GITHUB_USERNAME>/$YOUR_GITHUB_USERNAME/g" {} +
+find lab2/argocd-apps -name "*.yaml" \
+  -exec sed -i "s|DPP-2026/zen-gitops|$GH_USER/zen-gitops|g" {} + \
+  -exec sed -i "s|<YOUR_GITHUB_USERNAME>|$GH_USER|g" {} +
 
-# Verify
-grep -r "github.com" lab2/argocd-apps/ | head -3
-# Should show your actual username, not the placeholder
+# Verify — every line should show your username
+grep -r "github.com" lab2/argocd-apps/ | grep -v ".gitkeep"
 ```
 
-5. Commit and push:
+Expected output shows `github.com/<YOUR_USERNAME>/zen-gitops` everywhere — no `DPP-2026` or `<YOUR_GITHUB_USERNAME>` remaining.
+
+**1c. Add your fork to the AppProject source whitelist**
+
+ArgoCD's AppProject enforces which repos are allowed. Your fork must be listed:
 
 ```bash
-git add lab2/argocd-apps/
-git commit -m "lab2: set my GitHub username in app specs"
-git push
+# macOS
+sed -i '' "s|DPP-2026/zen-gitops|$GH_USER/zen-gitops|g" \
+  lab2/argocd-apps/project/pharma-project.yaml
+
+# Linux / Cloud9
+sed -i "s|DPP-2026/zen-gitops|$GH_USER/zen-gitops|g" \
+  lab2/argocd-apps/project/pharma-project.yaml
+
+grep "sourceRepos" -A3 lab2/argocd-apps/project/pharma-project.yaml
+# Should show your fork URL
 ```
 
 ---
 
-## Step 2 — Install ArgoCD
+## Step 2 — Set Your RDS Endpoint
+
+The ConfigMaps in `lab2/manifests/` contain a `DB_HOST` that must match **your** RDS instance. ArgoCD applies what is in Git — if the endpoint is wrong, ArgoCD will keep applying the broken ConfigMap and pods will keep crashing even after you fix the cluster manually.
 
 ```bash
-# Create the argocd namespace
+export DB_HOST=$(aws rds describe-db-instances \
+  --query 'DBInstances[?DBInstanceIdentifier==`pharma-dev-postgres`].Endpoint.Address' \
+  --output text)
+echo $DB_HOST
+# Expected: pharma-dev-postgres.<unique-id>.us-east-1.rds.amazonaws.com
+```
+
+```bash
+# macOS
+find lab2/manifests/ -name "configmap.yaml" \
+  -exec sed -i '' "s|DB_HOST:.*rds\.amazonaws\.com|DB_HOST: $DB_HOST|g" {} +
+
+# Linux / Cloud9
+find lab2/manifests/ -name "configmap.yaml" \
+  -exec sed -i "s|DB_HOST:.*rds\.amazonaws\.com|DB_HOST: $DB_HOST|g" {} +
+```
+
+Verify:
+```bash
+grep "DB_HOST" lab2/manifests/*/configmap.yaml
+# Every line should show your actual RDS endpoint
+```
+
+---
+
+## Step 3 — Commit and Push Everything
+
+```bash
+git add lab2/
+git commit -m "lab2: configure my GitHub username and RDS endpoint"
+git push
+```
+
+> ArgoCD clones your repo directly from GitHub. Changes that are not pushed are invisible to it. Always push before expecting ArgoCD to act.
+
+---
+
+## Step 4 — Install ArgoCD
+
+```bash
 kubectl create namespace argocd
 
-# Install ArgoCD (stable release)
 kubectl apply -n argocd \
   -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
 
-# Wait for all pods to be ready (takes 2-3 minutes)
+# Wait for the server to be ready (2-3 minutes)
 kubectl wait --for=condition=ready pod \
   -l app.kubernetes.io/name=argocd-server \
   -n argocd --timeout=300s
 
-# Verify all pods are Running
 kubectl get pods -n argocd
 ```
 
-Expected output — all pods Running and Ready:
+Expected — all pods Running and Ready:
 ```
 NAME                                                READY   STATUS    RESTARTS
 argocd-application-controller-0                     1/1     Running   0
@@ -135,44 +156,58 @@ argocd-server-xxx                                   1/1     Running   0
 
 ---
 
-## Step 3 — Access the ArgoCD UI
-
-Open a new terminal tab and run the port-forward (keep it running):
-
-```bash
-kubectl port-forward svc/argocd-server -n argocd 8080:443
-```
+## Step 5 — Access the ArgoCD UI
 
 Get the initial admin password:
-
 ```bash
 kubectl get secret argocd-initial-admin-secret -n argocd \
   -o jsonpath='{.data.password}' | base64 -d && echo
 ```
 
-Open your browser: `https://localhost:8080`
-Login: username `admin`, password from above command.
+**Option A — Port-forward (local machine):**
+```bash
+kubectl port-forward svc/argocd-server -n argocd 8080:443
+```
+Open: `https://localhost:8080`
 
-**You will see a certificate warning** — this is expected for a local port-forward. Click "Advanced" → "Proceed".
+**Option B — LoadBalancer (Cloud9 / remote):**
+```bash
+kubectl get svc argocd-server -n argocd
+# Copy the EXTERNAL-IP from the LoadBalancer line
+```
+Open: `https://<EXTERNAL-IP>` (you will see a TLS warning — click through, it is expected for a self-signed cert).
+
+Login: username `admin`, password from the command above.
 
 ---
 
-## Step 4 — Login via ArgoCD CLI
+## Step 6 — Install and Login via ArgoCD CLI
 
-Install the CLI if not already installed:
 ```bash
 # Mac
 brew install argocd
 
-# Linux
+# Linux / Cloud9
 curl -sSL -o /usr/local/bin/argocd \
   https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
 chmod +x /usr/local/bin/argocd
 ```
 
-Login:
+Login (port-forward):
 ```bash
 argocd login localhost:8080 \
+  --username admin \
+  --password $(kubectl get secret argocd-initial-admin-secret -n argocd \
+    -o jsonpath='{.data.password}' | base64 -d) \
+  --insecure
+```
+
+Login (LoadBalancer — replace with your LB address):
+```bash
+export ARGOCD_LB=$(kubectl get svc argocd-server -n argocd \
+  -o jsonpath='{.status.loadBalancer.ingress[0].hostname}')
+
+argocd login $ARGOCD_LB \
   --username admin \
   --password $(kubectl get secret argocd-initial-admin-secret -n argocd \
     -o jsonpath='{.data.password}' | base64 -d) \
@@ -183,16 +218,16 @@ Expected: `'admin:login' logged in successfully`
 
 ---
 
-## Step 5 — ArgoCD Concepts
+## Step 7 — Key ArgoCD Concepts
 
 **AppProject** — A security boundary. Defines which Git repos ArgoCD can use as sources, which namespaces it can deploy to, and which Kubernetes resource types it can create. Think of it as IAM for ArgoCD.
 
-**Application** — The core ArgoCD object. Links a Git source (repo + path + branch) to a Kubernetes destination (cluster + namespace). ArgoCD continuously compares what's in Git with what's in the cluster and reports the difference.
+**Application** — The core ArgoCD object. Links a Git source (repo + path + branch) to a Kubernetes destination (cluster + namespace). ArgoCD continuously compares what is in Git with what is in the cluster and reports the difference.
 
 **Sync Status:**
 - `Synced` — cluster matches Git exactly
 - `OutOfSync` — something differs (Git changed, or cluster was modified manually)
-- `Unknown` — ArgoCD can't determine state yet
+- `Unknown` — ArgoCD cannot determine state yet
 
 **Health Status:**
 - `Healthy` — all Kubernetes resources are in their desired state
@@ -203,7 +238,7 @@ Expected: `'admin:login' logged in successfully`
 
 ---
 
-## Step 6 — Create the pharma AppProject
+## Step 8 — Create the pharma AppProject
 
 ```bash
 kubectl apply -f lab2/argocd-apps/project/pharma-project.yaml
@@ -212,16 +247,21 @@ kubectl apply -f lab2/argocd-apps/project/pharma-project.yaml
 argocd proj list
 ```
 
-Explore the AppProject in the UI: click **Settings** → **Projects** → **pharma**. You will see the allowed source repos, destination namespaces, and the resource whitelist.
+Expected:
+```
+NAME    DESCRIPTION                  DESTINATIONS   SOURCES  CLUSTER-RESOURCE-WHITELIST  ...
+pharma  Pharma microservices project  3              1        */*                         ...
+```
+
+In the UI: click **Settings** → **Projects** → **pharma**. You can see the allowed source repos (your fork), destination namespaces (dev, qa, prod), and the resource whitelist.
 
 ---
 
-## Step 7 — Deploy auth-service via ArgoCD (Raw Manifests)
+## Step 9 — Deploy auth-service via ArgoCD (Raw Manifests)
 
-This is the anchor service. Do this one first and understand every step before scaling to all 9.
+Do this one first and understand every step before scaling to all 9.
 
 ```bash
-# Create the ArgoCD Application pointing to lab2/manifests/auth-service/
 kubectl apply -f lab2/argocd-apps/day2-raw/auth-service-app.yaml
 
 # Check the application status
@@ -231,45 +271,47 @@ argocd app list
 argocd app get auth-service-dev-raw
 ```
 
-Watch the pods come up:
+Watch the pod come up:
 ```bash
 kubectl get pods -n dev -w
 ```
 
+Press `Ctrl+C` when the pod reaches `Running`.
+
 **What just happened?**
-1. ArgoCD cloned your zen-gitops repo
+1. ArgoCD cloned your zen-gitops fork
 2. Found all YAML files in `lab2/manifests/auth-service/`
-3. Applied them to the `dev` namespace in order
+3. Applied them to the `dev` namespace
 4. Is now watching for any difference between that directory and the cluster
 
 ---
 
-## Step 8 — Explore the ArgoCD UI
+## Step 10 — Explore the ArgoCD UI
 
 In the browser, click on the `auth-service-dev-raw` application.
 
-**Resource Tree** — You see the full hierarchy ArgoCD is managing:
+**Resource Tree** — The full hierarchy ArgoCD manages:
 ```
 Application (auth-service-dev-raw)
 ├── ServiceAccount (auth-service)
 ├── ConfigMap (auth-service)
 ├── Deployment (auth-service)
 │   └── ReplicaSet (auth-service-xxx)
-│       └── Pod (auth-service-xxx-yyy)  ← click here to see logs
+│       └── Pod (auth-service-xxx-yyy)  ← click to see logs
 └── Service (auth-service)
 ```
 
 Click any resource to see its YAML, events, and logs.
 
-**Diff view** — Click **App Diff** to see what ArgoCD would change if you synced right now. Currently it should be empty (Synced).
+**App Diff** — Click to see what ArgoCD would change if you synced right now. Should be empty (Synced).
 
 **Sync History** — Click **History** to see every previous sync with its Git commit hash.
 
 ---
 
-## Step 9 — Simulate Configuration Drift
+## Step 11 — Simulate Configuration Drift
 
-Someone on your team bypasses GitOps and manually scales auth-service:
+Someone bypasses GitOps and manually scales auth-service:
 
 ```bash
 kubectl scale deployment auth-service --replicas=3 -n dev
@@ -281,11 +323,10 @@ Watch ArgoCD detect the drift (within 3 minutes, or force a refresh):
 argocd app get auth-service-dev-raw
 # STATUS: OutOfSync
 
-# See the exact diff
 argocd app diff auth-service-dev-raw
 ```
 
-In the UI, the app now shows an orange `OutOfSync` badge.
+In the UI the app shows an orange `OutOfSync` badge.
 
 Sync back to Git state:
 ```bash
@@ -294,13 +335,11 @@ kubectl get pods -n dev
 # Back to 1 pod — drift reverted
 ```
 
-**Key insight:** With `selfHeal: true` in syncPolicy, ArgoCD would have reverted this automatically without your intervention. This is what "GitOps" means — Git wins, always.
+> **Key insight:** With `selfHeal: true` added to syncPolicy, ArgoCD would revert this automatically without you triggering it. Git always wins.
 
 ---
 
-## Step 10 — Deploy All 9 Services
-
-Now apply the same pattern to all services:
+## Step 12 — Deploy All 9 Services
 
 ```bash
 for app in lab2/argocd-apps/day2-raw/*.yaml; do
@@ -310,24 +349,62 @@ done
 # Watch all applications appear
 argocd app list
 
-# Watch all pods come up in dev namespace
+# Watch all pods come up
 kubectl get pods -n dev -w
 ```
 
-Wait for all pods to reach `1/1 Running`. Services that connect to the database (auth, catalog, inventory, manufacturing, supplier, notification) need 60-90 seconds for Flyway DB migrations on first start. If any pod stays in `CrashLoopBackOff`, check that `DB_HOST` in its ConfigMap matches your RDS endpoint — see the "Before You Deploy" section above.
+Wait for all pods to reach `1/1 Running`. Services that connect to the database (auth, drug-catalog, inventory, manufacturing, supplier, notification) need 60-90 seconds for Flyway DB migrations on first startup.
 
 ---
 
-## Step 11 — Feel the Pain
+## Step 13 — Verify the Full Stack
 
-You now have 9 services deployed. Count what it took:
+```bash
+kubectl get all -n dev
+```
+
+Expected:
+- 9 Deployments
+- 9 ReplicaSets
+- 9 Pods (`1/1 Running`)
+- 9 Services
+- 2 Ingresses (api-gateway: `/api`, pharma-ui: `/`)
+
+Get the nginx LoadBalancer address:
+```bash
+kubectl get svc -n ingress-nginx
+# Copy the EXTERNAL-IP of the ingress-nginx-controller LoadBalancer
+```
+
+Open in your browser:
+```
+http://<EXTERNAL-IP>/
+```
+
+You should see the Zen Pharma UI load. If you see `404 Not Found` from nginx, the pharma-ui ingress is not applied — check `argocd app get pharma-ui-dev-raw` for sync errors.
+
+Test the API gateway:
+```bash
+curl http://<EXTERNAL-IP>/api/actuator/health
+# Expected: {"status":"UP"}
+```
+
+Check that all 9 ArgoCD apps are Synced and Healthy:
+```bash
+argocd app list
+# All STATUS: Synced, HEALTH: Healthy
+```
+
+---
+
+## Step 14 — Feel the Pain of Raw Manifests
 
 ```bash
 find lab2/manifests -name "*.yaml" | wc -l
-# 36 files — 4 per service × 9 services
+# ~40 files — 4-5 per service × 9 services
 ```
 
-Now imagine: the team releases a new Docker image. You need to update the image tag. That means editing `deployment.yaml` in 9 service directories. Add a new environment variable? Edit 9 `configmap.yaml` files. Change the readiness probe delay? Edit 9 `deployment.yaml` files.
+Now imagine: the team releases a new Docker image. You need to update the image tag. That means editing `deployment.yaml` in 9 directories. Add a new environment variable? Edit 9 `configmap.yaml` files. Change the readiness probe delay? Edit 9 `deployment.yaml` files.
 
 **This is what Helm solves. See you in Day 3.**
 
@@ -338,7 +415,15 @@ Now imagine: the team releases a new Docker image. You need to update the image 
 ## Prerequisites
 
 - Day 2 complete: ArgoCD installed, pharma AppProject created, all 9 day2-raw apps running
-- `helm` CLI installed: `brew install helm` (Mac) or see https://helm.sh/docs/intro/install/
+- `helm` CLI installed
+
+```bash
+# Mac
+brew install helm
+
+# Linux / Cloud9
+curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+```
 
 Verify:
 ```bash
@@ -351,25 +436,26 @@ argocd app list | grep "dev-raw"
 
 ## Step 1 — What is Helm?
 
-Helm is a package manager for Kubernetes. Instead of 9 × 4 = 36 YAML files with identical structure, you have:
+Helm is a package manager for Kubernetes. Instead of 9 × 4 = 36 YAML files with identical structure, you have one chart that templates everything:
 
 ```
-helm-charts/           ← one chart for ALL 9 services
+helm-charts/              ← one chart for ALL 9 services
 ├── Chart.yaml
-├── values.yaml        ← default values
+├── values.yaml           ← defaults
 └── templates/
-    ├── deployment.yaml    ← {{ .Values.image.tag }}, {{ .Values.replicaCount }}
-    ├── service.yaml       ← {{ .Values.service.port }}
-    ├── configmap.yaml     ← iterates over {{ .Values.configmap }}
+    ├── deployment.yaml   ← {{ .Values.image.tag }}, {{ .Values.replicaCount }}
+    ├── service.yaml      ← {{ .Values.service.port }}
+    ├── configmap.yaml    ← iterates over {{ .Values.configmap }}
     ├── serviceaccount.yaml
-    ├── hpa.yaml           ← {{- if .Values.autoscaling.enabled }}
-    └── ingress.yaml       ← {{- if .Values.ingress.enabled }}
+    ├── hpa.yaml          ← {{- if .Values.autoscaling.enabled }}
+    └── ingress.yaml      ← {{- if .Values.ingress.enabled }}
 ```
 
-Combined with per-service values files:
+Combined with per-service, per-environment values files:
 ```
-envs/dev/values-auth-service.yaml   ← auth-service's port, image, config
-envs/dev/values-api-gateway.yaml    ← api-gateway's port, image, config
+envs/dev/values-auth-service.yaml   ← auth-service's port, image, config for dev
+envs/qa/values-auth-service.yaml    ← same service, different values for qa
+envs/prod/values-auth-service.yaml  ← production values
 ```
 
 **One chart + one values file = all the manifests for one service in one environment.**
@@ -379,7 +465,6 @@ envs/dev/values-api-gateway.yaml    ← api-gateway's port, image, config
 ## Step 2 — Walk Through the Helm Chart
 
 ```bash
-# See the chart structure
 ls helm-charts/
 ls helm-charts/templates/
 
@@ -387,7 +472,7 @@ ls helm-charts/templates/
 cat helm-charts/templates/deployment.yaml
 ```
 
-Key template patterns you will see:
+Key template patterns:
 ```yaml
 name: {{ include "pharma-service.fullname" . }}
 replicas: {{ .Values.replicaCount }}
@@ -401,10 +486,9 @@ image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
 
 ## Step 3 — Preview What Helm Renders
 
-Before ArgoCD uses Helm, see what it will produce:
+Before ArgoCD uses Helm, see what it produces:
 
 ```bash
-# Render the chart with auth-service dev values
 helm template auth-service ./helm-charts \
   -f envs/dev/values-auth-service.yaml \
   -n dev | less
@@ -422,7 +506,6 @@ Delete the Day 2 raw app:
 ```bash
 argocd app delete auth-service-dev-raw --yes
 
-# Clean up the raw resources manually since we are replacing them
 kubectl delete -f lab2/manifests/auth-service/ -n dev
 ```
 
@@ -457,7 +540,6 @@ for app in $(argocd app list -o name | grep "dev-raw"); do
   argocd app delete $app --yes
 done
 
-# Clean up all raw manifests
 for svc in auth-service api-gateway drug-catalog-service inventory-service \
            manufacturing-service supplier-service qc-service notification-service pharma-ui; do
   kubectl delete -f lab2/manifests/$svc/ -n dev --ignore-not-found
@@ -470,15 +552,30 @@ for app in lab2/argocd-apps/day3-helm/dev/*.yaml; do
   kubectl apply -f $app
 done
 
-# Watch all 9 apps sync
 argocd app list
 kubectl get pods -n dev -w
 ```
+
+Wait for all 9 apps to show `Synced / Healthy`.
 
 ---
 
 ## Step 6 — Deploy QA Environment
 
+First, make sure the `qa` namespace and its secrets exist:
+```bash
+kubectl get namespace qa || kubectl create namespace qa
+kubectl get secret db-credentials -n qa 2>/dev/null || \
+  kubectl get secret db-credentials -n dev -o yaml \
+    | sed 's/namespace: dev/namespace: qa/' \
+    | kubectl apply -f -
+kubectl get secret jwt-secret -n qa 2>/dev/null || \
+  kubectl get secret jwt-secret -n dev -o yaml \
+    | sed 's/namespace: dev/namespace: qa/' \
+    | kubectl apply -f -
+```
+
+Deploy:
 ```bash
 for app in lab2/argocd-apps/day3-helm/qa/*.yaml; do
   kubectl apply -f $app
@@ -494,50 +591,67 @@ QA uses automated sync — ArgoCD applies changes from `envs/qa/` automatically 
 
 ## Step 7 — Deploy Production Environment (Manual Sync Gate)
 
+First, ensure the `prod` namespace and secrets exist (same pattern as qa, replacing `qa` with `prod`):
+```bash
+kubectl get namespace prod || kubectl create namespace prod
+kubectl get secret db-credentials -n prod 2>/dev/null || \
+  kubectl get secret db-credentials -n dev -o yaml \
+    | sed 's/namespace: dev/namespace: prod/' \
+    | kubectl apply -f -
+kubectl get secret jwt-secret -n prod 2>/dev/null || \
+  kubectl get secret jwt-secret -n dev -o yaml \
+    | sed 's/namespace: dev/namespace: prod/' \
+    | kubectl apply -f -
+```
+
+Deploy the app specs:
 ```bash
 for app in lab2/argocd-apps/day3-helm/prod/*.yaml; do
   kubectl apply -f $app
 done
 
-# Note: prod apps do NOT have automated sync
 argocd app list | grep "\-prod"
 # STATUS: OutOfSync  ← waiting for human approval
 ```
 
-The prod apps are OutOfSync — ArgoCD knows what to apply but will not do it without a human trigger.
+The prod apps are OutOfSync — ArgoCD knows what to apply but will not do it without a human trigger. **This is your compliance gate.**
 
-In the ArgoCD UI: click any prod application → **Sync** button → review the diff → click **Synchronize**.
+Approve in the UI: click any prod application → **Sync** → review the diff → **Synchronize**.
 
 Or via CLI:
 ```bash
-# Sync all prod services
 for app in $(argocd app list -o name | grep "\-prod"); do
   argocd app sync $app
 done
 kubectl get pods -n prod
 ```
 
-**Why manual for prod?** Every prod change must be explicitly approved by a human. Even if Git has the right values, ArgoCD waits. This is your compliance gate.
-
 ---
 
-## Step 8 — Simulate a CI Image Tag Update
+## Step 8 — Simulate a CI Image Tag Update (Full GitOps Loop)
 
-This is the full end-to-end GitOps workflow. In real life, your CI pipeline does this after a successful build.
+This is the end-to-end GitOps workflow. In real life your CI pipeline does this after a successful build and test run.
 
 ```bash
 # Simulate CI: update auth-service image tag in dev
+# If you have yq installed:
 yq e '.image.tag = "sha-classdemo"' -i envs/dev/values-auth-service.yaml
 
+# Or with sed:
+# macOS
+sed -i '' 's/tag: sha-.*/tag: sha-classdemo/' envs/dev/values-auth-service.yaml
+# Linux
+sed -i 's/tag: sha-.*/tag: sha-classdemo/' envs/dev/values-auth-service.yaml
+
 git add envs/dev/values-auth-service.yaml
-git commit -m "ci(dev): update auth-service -> sha-classdemo"
+git commit -m "ci(dev): update auth-service → sha-classdemo"
 git push
 ```
 
-ArgoCD detects the change within 3 minutes (or force a refresh):
+ArgoCD detects the change within 3 minutes (or force a refresh now):
 ```bash
 argocd app get auth-service-dev --watch
-# STATUS changes: Synced → OutOfSync → Synced (automated sync)
+# STATUS changes: Synced → OutOfSync → Synced (automated sync fires)
 
 kubectl get pods -n dev
 kubectl describe pod -l app=auth-service -n dev | grep Image
@@ -547,13 +661,44 @@ kubectl describe pod -l app=auth-service -n dev | grep Image
 **You just completed the full GitOps CD pipeline:**
 1. Value changed in Git
 2. ArgoCD detected the change
-3. Helm rendered new manifests
-4. Kubernetes rolled out the update
-5. Zero manual kubectl commands in production
+3. Helm rendered new manifests with the updated tag
+4. Kubernetes performed a rolling update
+5. Zero manual `kubectl` commands
 
 ---
 
-## Final State — What You Built
+## Step 9 — Final Verification
+
+```bash
+argocd app list
+```
+
+Expected:
+```
+NAME                          CLUSTER    NAMESPACE  STATUS  HEALTH     ...
+api-gateway-dev               in-cluster dev        Synced  Healthy
+auth-service-dev              in-cluster dev        Synced  Healthy
+drug-catalog-service-dev      in-cluster dev        Synced  Healthy
+inventory-service-dev         in-cluster dev        Synced  Healthy
+manufacturing-service-dev     in-cluster dev        Synced  Healthy
+notification-service-dev      in-cluster dev        Synced  Healthy
+pharma-ui-dev                 in-cluster dev        Synced  Healthy
+qc-service-dev                in-cluster dev        Synced  Healthy
+supplier-service-dev          in-cluster dev        Synced  Healthy
+... (qa and prod apps)
+```
+
+Confirm the UI is accessible:
+```bash
+kubectl get svc -n ingress-nginx
+# Get the EXTERNAL-IP of ingress-nginx-controller
+```
+
+`http://<EXTERNAL-IP>/` should load the Zen Pharma UI. `http://<EXTERNAL-IP>/api/actuator/health` should return `{"status":"UP"}`.
+
+---
+
+## What You Built
 
 ```
 EKS Cluster
@@ -564,8 +709,8 @@ EKS Cluster
 ArgoCD
 └── pharma project
     ├── 9 × dev apps
-    ├── 8 × qa apps   (qc-service excluded — no qa/prod values file exists)
-    └── 8 × prod apps (qc-service excluded, manual sync)
+    ├── 8 × qa apps    (qc-service excluded — no qa values file)
+    └── 8 × prod apps  (qc-service excluded, manual sync gate)
 
 zen-gitops repo
 ├── helm-charts/           ← one chart for all services
@@ -577,7 +722,7 @@ zen-gitops repo
 - Open ArgoCD UI, show all apps Synced/Healthy
 - Update a values file, push, watch ArgoCD sync dev automatically
 - Show a prod app OutOfSync waiting for the manual gate
-- Explain: "This is how a code change travels from developer commit to production"
+- Explain: "This is how a code change travels from developer commit to production — with a human approval gate before prod"
 
 ---
 
@@ -585,7 +730,7 @@ zen-gitops repo
 
 ## The Problem With Lab 1 Secrets
 
-In Lab 1 you ran `kubectl create secret` by hand. Someone had to know the plaintext value, type it into a terminal, and hope it never ended up in a `.env` file or Slack message. That is fine for a lab. It does not work in production for three reasons:
+In Lab 1 you ran `kubectl create secret` by hand. Someone had to know the plaintext value, type it into a terminal, and hope it never ended up in a `.env` file or Slack message. That works for a lab. It does not work in production for three reasons:
 
 1. **Secrets live only in etcd.** Base64-encoded, not encrypted by default. Anyone with `kubectl get secret` in that namespace can read the value. If the cluster is destroyed, the secrets are gone.
 2. **Rotation is fully manual.** Changing a password means `kubectl delete secret` + `kubectl create secret` + pod restarts, repeated in every namespace that needs it.
@@ -675,11 +820,11 @@ spec:
         property: password
 ```
 
-The path prefix (`/pharma/dev/` vs `/pharma/prod/`) is how environment isolation is enforced — different IAM policies can restrict which roles can read which paths.
+The path prefix (`/pharma/dev/` vs `/pharma/prod/`) is how environment isolation is enforced — different IAM policies restrict which roles can read which paths.
 
 ### 3. The materialized K8s Secret
 
-ESO creates this automatically. The Deployment consumes it the same way it consumed the Lab 1 hand-created secret:
+ESO creates this automatically. The Deployment consumes it exactly the same way it consumed the Lab 1 hand-created secret:
 
 ```yaml
 envFrom:
@@ -712,3 +857,101 @@ The entire cluster state should be reproducible by running `kubectl apply` again
 With ESO, you commit the `ExternalSecret` CRD to Git (safe — it contains only paths). ArgoCD applies it. ESO reads it and fetches the actual values from AWS. The cluster rebuilds itself completely from Git + AWS, with no manual secret injection step.
 
 `k8s/external-secrets/dev-external-secrets.yaml` is committed to this repo. It contains zero sensitive data — just the AWS Secrets Manager paths like `/pharma/dev/db-credentials`. The actual credentials never leave AWS.
+
+---
+
+# Troubleshooting
+
+## ArgoCD app stuck in OutOfSync after fork
+
+**Symptom:** App shows OutOfSync with error `repository not permitted`.
+
+**Cause:** The AppProject `sourceRepos` does not include your fork URL.
+
+**Fix:**
+```bash
+kubectl get appproject pharma -n argocd -o yaml | grep sourceRepos -A5
+# If your fork URL is not listed, re-apply after running Step 1c again
+kubectl apply -f lab2/argocd-apps/project/pharma-project.yaml
+```
+
+## Pods in CrashLoopBackOff — `UnknownHostException`
+
+**Symptom:**
+```
+Caused by: java.net.UnknownHostException: pharma-dev-postgres.<id>.us-east-1.rds.amazonaws.com
+```
+
+**Cause:** The `DB_HOST` ConfigMap entry points to a wrong or stale endpoint.
+
+**Fix:**
+```bash
+export DB_HOST=$(aws rds describe-db-instances \
+  --query 'DBInstances[?DBInstanceIdentifier==`pharma-dev-postgres`].Endpoint.Address' \
+  --output text)
+
+# Update configmaps (see Step 2 above), commit, push
+# ArgoCD will apply the corrected ConfigMap on the next sync cycle
+argocd app sync <service-name>-dev-raw   # or -dev for Helm apps
+kubectl rollout restart deployment/<service-name> -n dev
+```
+
+## 404 Not Found on the LoadBalancer URL
+
+**Symptom:** `http://<LB>/` returns nginx 404.
+
+**Cause:** The pharma-ui ingress resource was not applied. ArgoCD only manages what is explicitly in the Application's source path.
+
+**Fix:**
+```bash
+argocd app get pharma-ui-dev-raw
+# Look for sync errors — if the ingress.yaml is missing from the repo, add it
+kubectl get ingress -n dev
+# If pharma-ui ingress is absent, check that lab2/manifests/pharma-ui/ingress.yaml exists and was pushed
+```
+
+## Pods in ImagePullBackOff
+
+**Symptom:** Events show `failed to pull image ... not found`
+
+**Fix:**
+```bash
+aws ecr describe-images \
+  --repository-name auth-service \
+  --query 'sort_by(imageDetails,&imagePushedAt)[-5:].imageTags' \
+  --output table
+```
+
+Update the image tag in the relevant values file (Helm) or `deployment.yaml` (raw), commit, push.
+
+## Pending pods — insufficient resources
+
+**Symptom:** Pods stuck in `Pending`. Events: `Insufficient memory` or `Too many pods`.
+
+**Cause:** During a rolling update, old and new pods coexist. If the cluster is near capacity, new pods cannot be scheduled.
+
+**Fix:**
+```bash
+kubectl get pods -n dev
+kubectl delete pod <pod-name-in-crashloopbackoff> -n dev
+```
+
+---
+
+## Cleanup
+
+To remove a specific environment:
+```bash
+# Delete all ArgoCD apps for dev
+for app in $(argocd app list -o name | grep "\-dev"); do
+  argocd app delete $app --yes
+done
+
+# Or delete the namespace entirely
+kubectl delete namespace dev
+```
+
+To remove ArgoCD:
+```bash
+kubectl delete namespace argocd
+```
